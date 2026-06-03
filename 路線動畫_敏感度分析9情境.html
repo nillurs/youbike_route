@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>YouBike 調度路線 — 敏感度分析</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:"Microsoft JhengHei",Arial,sans-serif;background:#0d0d1a}
+#map{width:100%;height:100vh}
+
+/* ── Panel ── */
+#panel{
+  position:fixed;top:14px;left:14px;z-index:1000;
+  background:rgba(10,10,26,0.94);border:1px solid #252545;
+  border-radius:14px;width:296px;backdrop-filter:blur(10px);overflow:hidden;
+}
+#ph{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:11px 15px;cursor:pointer;user-select:none;
+  border-bottom:1px solid #1c1c38;
+}
+#ph h2{font-size:13px;color:#7ecfff;letter-spacing:.4px;font-weight:600}
+#tb{background:none;border:none;color:#555;font-size:14px;cursor:pointer;padding:0}
+#pb{padding:12px 14px 14px}
+
+/* ── 3×3 Grid ── */
+.grid-wrap{margin-bottom:12px}
+.grid-header{
+  display:grid;grid-template-columns:52px repeat(3,1fr);
+  gap:4px;margin-bottom:4px;
+}
+.gh{font-size:10px;color:#555;text-align:center;padding:3px 0}
+.grid-row{display:grid;grid-template-columns:52px repeat(3,1fr);gap:4px;margin-bottom:4px}
+.row-label{
+  font-size:10px;color:#555;text-align:right;
+  padding-right:6px;display:flex;align-items:center;justify-content:flex-end;line-height:1.3
+}
+.gc{
+  padding:7px 4px;border:1px solid #222240;border-radius:8px;
+  background:#111128;color:#999;font-size:11px;cursor:pointer;
+  text-align:center;line-height:1.3;transition:.15s;
+}
+.gc:hover{background:#1a1a38;border-color:#3a5a8a;color:#ccc}
+.gc.active{background:#1d4a8a;border-color:#3A86FF;color:#fff}
+.gc .fleet-num{font-weight:600;font-size:12px;color:#ccc}
+.gc.active .fleet-num{color:#fff}
+.gc .svc-pct{font-size:10px;margin-top:2px}
+.s-green{color:#4ecdc4}.s-orange{color:#ffb347}.s-red{color:#ff7070}
+
+/* ── Divider ── */
+.div{border:none;border-top:1px solid #1c1c38;margin:10px 0}
+
+/* ── Vehicle list ── */
+#vlist .vr{display:flex;align-items:center;gap:7px;margin:4px 0}
+.dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.vi{color:#bbb;font-size:11px;flex:1}
+.eye{cursor:pointer;font-size:12px;opacity:.6;flex-shrink:0}
+.eye:hover{opacity:1}
+
+/* ── Stats box ── */
+#stats{
+  font-size:11px;color:#777;
+  padding:8px 10px;background:#0a0a1c;border-radius:8px;
+  line-height:1.9;margin:8px 0
+}
+#stats b{color:#7ecfff}
+
+/* ── Buttons ── */
+#ctrl{display:flex;gap:6px;margin:8px 0}
+.cb{flex:1;padding:7px;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;transition:.15s}
+#bp{background:#3A86FF;color:#fff}
+#bp:hover{background:#2060cc}
+#br{background:#1e1e34;color:#999}
+#br:hover{background:#252545}
+
+/* ── Speed ── */
+.spd-row{display:flex;align-items:center;gap:8px;font-size:11px;color:#666;margin:4px 0}
+.spd-row b{color:#7ecfff;min-width:22px}
+input[type=range]{flex:1;accent-color:#3A86FF;height:3px}
+
+/* ── Bottom row ── */
+.bot{display:flex;align-items:center;gap:8px;margin-top:8px}
+#bgt{padding:5px 12px;border:1px solid #252545;border-radius:7px;
+     background:#111128;color:#aaa;font-size:11px;cursor:pointer;transition:.15s}
+#bgt:hover{background:#1a1a38}
+.leg{display:flex;gap:10px;flex:1;justify-content:flex-end}
+.lr{display:flex;align-items:center;gap:4px;font-size:10px;color:#666}
+.ld{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+
+/* ── Toast ── */
+#toast{
+  position:fixed;bottom:18px;left:50%;transform:translateX(-50%);
+  background:rgba(10,10,26,.96);border:1px solid #2a4a6a;border-radius:9px;
+  padding:8px 18px;font-size:12px;z-index:1000;display:none;
+  max-width:420px;text-align:center;color:#ccc;backdrop-filter:blur(6px)
+}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="panel">
+  <div id="ph">
+    <h2>&#x1F6B2; YouBike 調度敏感度分析</h2>
+    <button id="tb">&#x25B2;</button>
+  </div>
+  <div id="pb">
+
+    <!-- Grid -->
+    <div class="grid-wrap">
+      <div class="grid-header">
+        <div class="gh" style="text-align:left;color:#444;font-size:9px">容量↓/車隊→</div>
+        <div class="gh">3 輛</div>
+        <div class="gh">4 輛</div>
+        <div class="gh">5 輛</div>
+      </div>
+      <div id="grid-body"></div>
+    </div>
+
+    <hr class="div">
+
+    <!-- Vehicle list -->
+    <div id="vlist"></div>
+
+    <!-- Stats -->
+    <div id="stats"></div>
+
+    <!-- Controls -->
+    <div id="ctrl">
+      <button class="cb" id="bp">&#x25B6; 播放</button>
+      <button class="cb" id="br">&#x27F3; 重置</button>
+    </div>
+    <div class="spd-row">速度 <b id="sv">3x</b><input type="range" id="spd" min="1" max="10" value="3"></div>
+
+    <!-- Bottom -->
+    <div class="bot">
+      <button id="bgt">&#x2600; 白底</button>
+      <div class="leg">
+        <div class="lr"><div class="ld" style="background:#ff6b35"></div>大站</div>
+        <div class="lr"><div class="ld" style="background:#4ecdc4"></div>小站</div>
+        <div class="lr"><div class="ld" style="background:#ff4444;border-radius:2px"></div>未服務</div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+const ALL    = {"車隊3_容量30": {"key": "車隊3_容量30", "fleet": 3, "cap_lim": 30, "supply": 250, "need": 278, "theory": 89.9, "total_dist": 16528, "total_delv": 140, "svc_rate": 50.4, "skipped": ["逢甲福星路口", "秋紅谷", "市政府(文心樓)", "文華高中(文 心路)", "捷運市府站(出口 2)"], "vehicles": [{"v": 1, "dist": 3923, "pick": 29, "delv": 29, "last": "臺中綠美圖", "stops": [{"name": "中央公園(遊客服務中心)", "type": "小站", "cap": 40, "stock": 22, "lat": 24.17987, "lon": 120.65571, "demand": 6, "load_after": 0, "action": "取 6 台"}, {"name": "逢大大鵬路口", "type": "小站", "cap": 28, "stock": 15, "lat": 24.17843, "lon": 120.65047, "demand": 4, "load_after": 0, "action": "取 4 台"}, {"name": "文修公園", "type": "小站", "cap": 22, "stock": 12, "lat": 24.18234, "lon": 120.642, "demand": 4, "load_after": 0, "action": "取 4 台"}], "active": true}, {"v": 2, "dist": 5431, "pick": 37, "delv": 36, "last": "臺灣大道新興路口", "stops": [{"name": "國安一號公園", "type": "小站", "cap": 30, "stock": 16, "lat": 24.19061, "lon": 120.61472, "demand": 4, "load_after": 4, "action": "取 4 台"}, {"name": "福科國民中學", "type": "小站", "cap": 28, "stock": 15, "lat": 24.18972, "lon": 120.61381, "demand": 4, "load_after": 8, "action": "取 4 台"}, {"name": "福科玉門路口", "type": "小站", "cap": 23, "stock": 13, "lat": 24.187196, "lon": 120.610396, "demand": 4, "load_after": 12, "action": "取 4 台"}, {"name": "臺灣大道福林路口", "type": "小站", "cap": 28, "stock": 15, "lat": 24.18361, "lon": 120.61377, "demand": 4, "load_after": 4, "action": "取 4 台"}, {"name": "臺灣大道工業區一路口(東南側)", "type": "小站", "cap": 24, "stock": 13, "lat": 24.18258, "lon": 120.61566, "demand": 3, "load_after": 7, "action": "取 3 台"}, {"name": "工業區一路工業區一路 58 巷口", "type": "小站", "cap": 22, "stock": 12, "lat": 0, "lon": 0, "demand": 3, "load_after": 0, "action": "取 3 台"}, {"name": "中工二路福中十街口", "type": "小站", "cap": 28, "stock": 15, "lat": 24.17692, "lon": 120.61593, "demand": 4, "load_after": 14, "action": "取 4 台"}, {"name": "工業區一路 98 巷口", "type": "小站", "cap": 25, "stock": 14, "lat": 0, "lon": 0, "demand": 4, "load_after": 6, "action": "取 4 台"}, {"name": "臺灣大道約農路口", "type": "小站", "cap": 45, "stock": 25, "lat": 24.18269, "lon": 120.60287, "demand": 7, "load_after": 13, "action": "取 7 台"}], "active": true}, {"v": 3, "dist": 7174, "pick": 76, "delv": 75, "last": "櫻花棒球場", "stops": [{"name": "大安公園", "type": "小站", "cap": 21, "stock": 12, "lat": 24.15803, "lon": 120.65431, "demand": 4, "load_after": 4, "action": "取 4 台"}, {"name": "何厝公園", "type": "小站", "cap": 30, "stock": 16, "lat": 24.16061, "lon": 120.65492, "demand": 4, "load_after": 12, "action": "取 4 台"}, {"name": "臺灣大道文心路口(西北側)", "type": "小站", "cap": 30, "stock": 16, "lat": 24.163, "lon": 120.64945, "demand": 4, "load_after": 0, "action": "取 4 台"}, {"name": "臺中市政府(惠中路)", "type": "小站", "cap": 42, "stock": 23, "lat": 24.16303, "lon": 120.64574, "demand": 6, "load_after": 14, "action": "取 6 台"}, {"name": "惠來停車場", "type": "小站", "cap": 41, "stock": 23, "lat": 24.15999, "lon": 120.63964, "demand": 6, "load_after": 0, "action": "取 6 台"}, {"name": "上德公園", "type": "小站", "cap": 24, "stock": 13, "lat": 24.16931, "lon": 120.64451, "demand": 7, "load_after": 2, "action": "取 7 台"}, {"name": "上石公園", "type": "小站", "cap": 30, "stock": 16, "lat": 24.17284, "lon": 120.64493, "demand": 4, "load_after": 28, "action": "取 4 台"}], "active": true}]}, "車隊4_容量30": {"key": "車隊4_容量30", "fleet": 4, "cap_lim": 30, "supply": 250, "need": 278, "theory": 89.9, "total_dist": 21487, "total_delv": 188, "svc_rate": 67.6, "skipped": ["逢甲福星路口", "秋紅谷", "市政府(文心樓)"], "vehicles": [{"v": 1, "dist": 3341, "pick": 35, "delv": 33, "last": "新光/遠百", "stops": [{"name": "頂何厝", "type": "小站", "cap": 28, "stock": 15, "lat": 24.15924, "lon": 120.65532, "demand": 4, "load_after": 0, "action": "取 4 台"}], "active": true}, {"v": 2, "dist": 7092, "pick": 58, "delv": 58, "last": "臺中綠美圖", "stops": [{"name": "惠來公園", "type": "小站", "cap": 25, "stock": 14, "lat": 24.15571, "lon": 120.639, "demand": 4, "load_after": 0, "action": "取 4 台"}, {"name": "上安公園(南側)", "type": "小站", "cap": 45, "stock": 25, "lat": 24.170154, "lon": 120.640555, "demand": 7, "load_after": 7, "action": "取 7 台"}, {"name": "青海上石路口", "type": "小站", "cap": 33, "stock": 18, "lat": 24.1705, "lon": 120.64518, "demand": 5, "load_after": 12, "action": "取 5 台"}, {"name": "上石公園", "type": "小站", "cap": 30, "stock": 16, "lat": 24.17284, "lon": 120.64493, "demand": 4, "load_after": 16, "action": "取 4 台"}, {"name": "上石國小(湳子巷)", "type": "小站", "cap": 40, "stock": 22, "lat": 24.17343, "lon": 120.64296, "demand": 6, "load_after": 8, "action": "取 6 台"}, {"name": "文修公園", "type": "小站", "cap": 28, "stock": 15, "lat": 24.18234, "lon": 120.642, "demand": 4, "load_after": 0, "action": "取 4 台"}], "active": true}, {"v": 3, "dist": 5430, "pick": 36, "delv": 36, "last": "臺灣大道新興路口", "stops": [{"name": "福科國民中學", "type": "小站", "cap": 28, "stock": 15, "lat": 24.18972, "lon": 120.61381, "demand": 4, "load_after": 4, "action": "取 4 台"}, {"name": "國安二號公園", "type": "小站", "cap": 21, "stock": 12, "lat": 24.19078, "lon": 120.61159, "demand": 4, "load_after": 8, "action": "取 4 台"}, {"name": "玉門西屯路三段口", "type": "小站", "cap": 22, "stock": 12, "lat": 24.190807, "lon": 120.610831, "demand": 3, "load_after": 11, "action": "取 3 台"}, {"name": "福科玉門路口", "type": "小站", "cap": 23, "stock": 13, "lat": 24.187196, "lon": 120.610396, "demand": 4, "load_after": 15, "action": "取 4 台"}, {"name": "臺灣大道福林路口", "type": "小站", "cap": 28, "stock": 15, "lat": 24.18361, "lon": 120.61377, "demand": 4, "load_after": 7, "action": "取 4 台"}, {"name": "臺灣大道工業區一路口(東南側)", "type": "小站", "cap": 24, "stock": 13, "lat": 24.18258, "lon": 120.61566, "demand": 3, "load_after": 10, "action": "取 3 台"}, {"name": "工業區一路工業區一路 58 巷口", "type": "小站", "cap": 22, "stock": 12, "lat": 0, "lon": 0, "demand": 3, "load_after": 0, "action": "取 3 台"}, {"name": "中工二路福中十街口", "type": "小站", "cap": 28, "stock": 15, "lat": 24.17692, "lon": 120.61593, "demand": 4, "load_after": 17, "action": "取 4 台"}, {"name": "臺灣大道約農路口", "type": "小站", "cap": 45, "stock": 25, "lat": 24.18269, "lon": 120.60287, "demand": 7, "load_after": 12, "action": "取 7 台"}], "active": true}, {"v": 4, "dist": 5624, "pick": 61, "delv": 61, "last": "文華高中(文心路)", "stops": [{"name": "臺中流行影音中心", "type": "小站", "cap": 33, "stock": 18, "lat": 24.1815, "lon": 120.65804, "demand": 5, "load_after": 0, "action": "取 5 台"}, {"name": "逢大大鵬路口", "type": "小站", "cap": 28, "stock": 15, "lat": 24.17843, "lon": 120.65047, "demand": 4, "load_after": 0, "action": "取 4 台"}, {"name": "櫻花棒球場", "type": "大站", "cap": 53, "stock": 29, "lat": 24.16867, "lon": 120.6531, "demand": 4, "load_after": 23, "action": "取 4 台"}, {"name": "臺灣大道文心路口(西北側)", "type": "小站", "cap": 30, "stock": 16, "lat": 24.163, "lon": 120.64945, "demand": 4, "load_after": 0, "action": "取 4 台"}, {"name": "大仁公", "type": "小站", "cap": 22, "stock": 12, "lat": 0, "lon": 0, "demand": 3, "load_after": 22, "action": "取 3 台"}, {"name": "中仁公園", "type": "小站", "cap": 28, "stock": 15, "lat": 24.16561, "lon": 120.66077, "demand": 4, "load_after": 26, "action": "取 4 台"}, {"name": "大仁國小", "type": "小站", "cap": 25, "stock": 14, "lat": 24.16783, "lon": 120.65778, "demand": 4, "load_after": 30, "action": "取 4 台"}], "active": true}]}, "車隊5_容量30": {"key": "車隊5_容量30", "fleet": 5, "cap_lim": 30, "supply": 250, "need": 278, "theory": 89.9, "total_dist": 21255, "total_delv": 188, "svc_rate": 67.6, "skipped": ["逢甲福星路口", "秋紅谷", "文華高中(文心路)"], "vehicles": [{"v": 1, "dist": 5183, "pick": 47, "delv": 47, "last": "市政府(文心樓)", "stops": [{"name": "上石公園", "type": "小站", "cap": 30, "stock": 16, "lat": 24.17284, "lon": 120.64493, "demand": 4, "load_after": 0, "action": "取 4 台"}, {"name": "臺中至善公園", "type": "小站", "cap": 28, "stock": 15, "lat": 24.17492, "lon": 120.64209, "demand": 6, "load_after": 10, "action": "取 6 台"}, {"name": "逢甲公園", "type": "小站", "cap": 24, "stock": 13, "lat": 24.17632, "lon": 120.64074, "demand": 3, "load_after": 17, "action": "取 3 台"}, {"name": "文修公園", "type": "小站", "cap": 22, "stock": 12, "lat": 24.18234, "lon": 120.642, "demand": 3, "load_after": 20, "action": "取 3 台"}, {"name": "僑光科技大學", "type": "小站", "cap": 43, "stock": 24, "lat": 24.18726, "lon": 120.64393, "demand": 7, "load_after": 0, "action": "取 7 台"}], "active": true}, {"v": 2, "dist": 5474, "pick": 64, "delv": 64, "last": "新光/遠百", "stops": [{"name": "三信公園", "type": "小站", "cap": 24, "stock": 13, "lat": 24.16623, "lon": 120.66372, "demand": 3, "load_after": 3, "action": "取 3 台"}, {"name": "中仁公園", "type": "小站", "cap": 28, "stock": 15, "lat": 24.16561, "lon": 120.66077, "demand": 4, "load_after": 7, "action": "取 4 台"}, {"name": "大仁公園", "type": "小站", "cap": 22, "stock": 12, "lat": 24.16569, "lon": 120.65929, "demand": 3, "load_after": 10, "action": "取 3 台"}, {"name": "大仁國小", "type": "小站", "cap": 25, "stock": 14, "lat": 24.16783, "lon": 120.65778, "demand": 4, "load_after": 14, "action": "取 4 台"}, {"name": "長安公園", "type": "小站", "cap": 25, "stock": 14, "lat": 24.17021, "lon": 120.65429, "demand": 4, "load_after": 18, "action": "取 4 台"}, {"name": "青海公園(四川東街)", "type": "小站", "cap": 33, "stock": 18, "lat": 24.16441, "lon": 120.65334, "demand": 5, "load_after": 21, "action": "取 5 台"}, {"name": "何厝公園", "type": "小站", "cap": 30, "stock": 16, "lat": 24.16061, "lon": 120.65492, "demand": 4, "load_after": 25, "action": "取 4 台"}, {"name": "頂何厝", "type": "小站", "cap": 28, "stock": 15, "lat": 24.15924, "lon": 120.65532, "demand": 4, "load_after": 17, "action": "取 4 台"}, {"name": "臺灣大道文心路口(西北側)", "type": "小站", "cap": 30, "stock": 16, "lat": 24.163, "lon": 120.64945, "demand": 4, "load_after": 0, "action": "取 4 台"}, {"name": "新光/遠百", "type": "大站", "cap": 84, "stock": 46, "lat": 24.16614, "lon": 120.64292, "demand": 6, "load_after": 17, "action": "取 6 台"}], "active": true}, {"v": 3, "dist": 2470, "pick": 12, "delv": 12, "last": "臺中綠美圖", "stops": [{"name": "中央公園(遊客服務中心) 取 6台 →離開剩 6 台", "type": "小站", "cap": 40, "stock": 22, "lat": 0, "lon": 0, "demand": 6, "load_after": 6, "action": "取 6 台"}], "active": true}, {"v": 4, "dist": 5468, "pick": 36, "delv": 36, "last": "臺灣大道新興路口", "stops": [{"name": "玉門西屯路三段口", "type": "小站", "cap": 22, "stock": 12, "lat": 24.190807, "lon": 120.610831, "demand": 3, "load_after": 3, "action": "取 3 台"}, {"name": "國安二號公園", "type": "小站", "cap": 21, "stock": 12, "lat": 24.19078, "lon": 120.61159, "demand": 4, "load_after": 7, "action": "取 4 台"}, {"name": "國安一號公園", "type": "小站", "cap": 30, "stock": 16, "lat": 24.19061, "lon": 120.61472, "demand": 4, "load_after": 11, "action": "取 4 台"}, {"name": "福科國民中學", "type": "小站", "cap": 28, "stock": 15, "lat": 24.18972, "lon": 120.61381, "demand": 4, "load_after": 15, "action": "取 4 台"}, {"name": "臺灣大道工業區一路口(東南側) 取 4台 →離開剩 19 台", "type": "小站", "cap": 24, "stock": 13, "lat": 0, "lon": 0, "demand": 3, "load_after": 19, "action": "取 3 台"}, {"name": "工業區一路工業區一路 58 巷口", "type": "小站", "cap": 22, "stock": 12, "lat": 0, "lon": 0, "demand": 3, "load_after": 0, "action": "取 3 台"}, {"name": "臺灣大道約農路口", "type": "小站", "cap": 45, "stock": 25, "lat": 24.18269, "lon": 120.60287, "demand": 7, "load_after": 12, "action": "取 7 台"}], "active": true}, {"v": 5, "dist": 2660, "pick": 29, "delv": 29, "last": "福星公園", "stops": [{"name": "市政公園停車場", "type": "小站", "cap": 38, "stock": 21, "lat": 24.16099, "lon": 120.64453, "demand": 6, "load_after": 6, "action": "取 6 台"}, {"name": "臺中市議會", "type": "小站", "cap": 27, "stock": 15, "lat": 24.15805, "lon": 120.64403, "demand": 4, "load_after": 10, "action": "取 4 台"}, {"name": "惠來停車場", "type": "小站", "cap": 41, "stock": 23, "lat": 24.15999, "lon": 120.63964, "demand": 7, "load_after": 17, "action": "取 7 台"}, {"name": "上德公園", "type": "小站", "cap": 24, "stock": 13, "lat": 24.16931, "lon": 120.64451, "demand": 3, "load_after": 0, "action": "取 3 台"}], "active": true}]}, "車隊5_容量40": {"key": "車隊5_容量40", "fleet": 5, "cap_lim": 40, "supply": 250, "need": 292, "theory": 85.6, "total_dist": 21370, "total_delv": 177, "svc_rate": 64.7, "skipped": ["逢甲福星路口", "秋紅谷", "市政府(文心樓)"], "vehicles": [{"v": 1, "dist": 7445, "pick": 56, "delv": 56, "last": "臺中綠美圖", "stops": [{"name": "臺中流行影音中心", "type": "小站", "cap": 33, "stock": 18, "lat": 24.1815, "lon": 120.65804, "demand": 5, "load_after": 0, "action": "取 5 台"}, {"name": "逢大大鵬路口", "type": "小站", "cap": 28, "stock": 15, "lat": 24.17843, "lon": 120.65047, "demand": 5, "load_after": 0, "action": "取 5 台"}, {"name": "大仁國小", "type": "小站", "cap": 25, "stock": 14, "lat": 24.16783, "lon": 120.65778, "demand": 4, "load_after": 0, "action": "取 4 台"}, {"name": "高登公園", "type": "小站", "cap": 28, "stock": 15, "lat": 24.17106, "lon": 120.66571, "demand": 4, "load_after": 7, "action": "取 4 台"}, {"name": "大鵬國小", "type": "小站", "cap": 34, "stock": 19, "lat": 24.17811, "lon": 120.66567, "demand": 5, "load_after": 12, "action": "取 5 台"}, {"name": "臺灣大道福林路口", "type": "小站", "cap": 28, "stock": 15, "lat": 24.18361, "lon": 120.61377, "demand": 4, "load_after": 4, "action": "取 4 台"}, {"name": "臺灣大道工業區一路口(東南側)", "type": "小站", "cap": 24, "stock": 13, "lat": 24.18258, "lon": 120.61566, "demand": 3, "load_after": 7, "action": "取 3 台"}, {"name": "工業區一路工業區一路 58 巷口", "type": "小站", "cap": 22, "stock": 12, "lat": 0, "lon": 0, "demand": 3, "load_after": 0, "action": "取 3 台"}, {"name": "中工二路福中十街口", "type": "小站", "cap": 28, "stock": 15, "lat": 24.17692, "lon": 120.61593, "demand": 4, "load_after": 14, "action": "取 4 台"}], "active": true}, {"v": 3, "dist": 4543, "pick": 46, "delv": 46, "last": "漢翔福星北路口", "stops": [{"name": "市政公園停車場", "type": "小站", "cap": 38, "stock": 21, "lat": 24.16099, "lon": 120.64453, "demand": 6, "load_after": 6, "action": "取 6 台"}, {"name": "臺中市議會", "type": "小站", "cap": 27, "stock": 15, "lat": 24.15805, "lon": 120.64403, "demand": 4, "load_after": 10, "action": "取 4 台"}, {"name": "惠來停車場", "type": "小站", "cap": 41, "stock": 23, "lat": 24.15999, "lon": 120.63964, "demand": 7, "load_after": 17, "action": "取 7 台"}, {"name": "上石公園", "type": "小站", "cap": 30, "stock": 16, "lat": 24.17284, "lon": 120.64493, "demand": 4, "load_after": 4, "action": "取 4 台"}, {"name": "文修公園", "type": "小站", "cap": 22, "stock": 12, "lat": 24.18234, "lon": 120.642, "demand": 6, "load_after": 0, "action": "取 6 台"}], "active": true}, {"v": 4, "dist": 2876, "pick": 26, "delv": 24, "last": "臺灣大道新興路口", "stops": [{"name": "國安一號公園", "type": "小站", "cap": 30, "stock": 16, "lat": 24.19061, "lon": 120.61472, "demand": 4, "load_after": 4, "action": "取 4 台"}, {"name": "福科國民中學", "type": "小站", "cap": 28, "stock": 15, "lat": 24.18972, "lon": 120.61381, "demand": 4, "load_after": 8, "action": "取 4 台"}, {"name": "國安二號公園", "type": "小站", "cap": 21, "stock": 12, "lat": 24.19078, "lon": 120.61159, "demand": 4, "load_after": 12, "action": "取 4 台"}, {"name": "福科玉門路口", "type": "小站", "cap": 23, "stock": 13, "lat": 24.187196, "lon": 120.610396, "demand": 3, "load_after": 15, "action": "取 3 台"}, {"name": "臺灣大道約農路口", "type": "小站", "cap": 45, "stock": 25, "lat": 24.18269, "lon": 120.60287, "demand": 7, "load_after": 14, "action": "取 7 台"}], "active": true}, {"v": 5, "dist": 5262, "pick": 51, "delv": 51, "last": "新光/遠百", "stops": [{"name": "皇城帝寶", "type": "小站", "cap": 36, "stock": 20, "lat": 24.17382, "lon": 120.66149, "demand": 6, "load_after": 6, "action": "取 6 台"}, {"name": "三信公園", "type": "小站", "cap": 24, "stock": 13, "lat": 24.16623, "lon": 120.66372, "demand": 3, "load_after": 9, "action": "取 3 台"}, {"name": "中仁公園", "type": "小站", "cap": 28, "stock": 15, "lat": 24.16561, "lon": 120.66077, "demand": 4, "load_after": 13, "action": "取 4 台"}, {"name": "大仁公園", "type": "小站", "cap": 22, "stock": 12, "lat": 24.16569, "lon": 120.65929, "demand": 3, "load_after": 16, "action": "取 3 台"}, {"name": "大弘公園", "type": "小站", "cap": 30, "stock": 16, "lat": 24.1628, "lon": 120.66128, "demand": 4, "load_after": 20, "action": "取 4 台"}, {"name": "頂何厝", "type": "小站", "cap": 28, "stock": 15, "lat": 24.15924, "lon": 120.65532, "demand": 4, "load_after": 12, "action": "取 4 台"}, {"name": "臺灣大道文心路口(西北側)", "type": "小站", "cap": 30, "stock": 16, "lat": 24.163, "lon": 120.64945, "demand": 4, "load_after": 0, "action": "取 4 台"}], "active": true}]}, "車隊5_容量50": {"key": "車隊5_容量50", "fleet": 5, "cap_lim": 50, "supply": 250, "need": 292, "theory": 85.6, "total_dist": 18988, "total_delv": 189, "svc_rate": 64.7, "skipped": ["逢甲福星路口", "秋紅谷", "市政府(文心樓)"], "vehicles": [{"v": 1, "dist": 2876, "pick": 26, "delv": 24, "last": "臺灣大道新興路口", "stops": [{"name": "國安一號公園", "type": "小站", "cap": 30, "stock": 16, "lat": 24.19061, "lon": 120.61472, "demand": 4, "load_after": 4, "action": "取 4 台"}, {"name": "福科國民中學", "type": "小站", "cap": 28, "stock": 15, "lat": 24.18972, "lon": 120.61381, "demand": 4, "load_after": 8, "action": "取 4 台"}, {"name": "國安二號公園", "type": "小站", "cap": 21, "stock": 12, "lat": 24.19078, "lon": 120.61159, "demand": 4, "load_after": 12, "action": "取 4 台"}, {"name": "福科玉門路口", "type": "小站", "cap": 23, "stock": 13, "lat": 24.187196, "lon": 120.610396, "demand": 3, "load_after": 15, "action": "取 3 台"}, {"name": "臺灣大道約農路口", "type": "小站", "cap": 45, "stock": 25, "lat": 24.18269, "lon": 120.60287, "demand": 7, "load_after": 14, "action": "取 7 台"}], "active": true}, {"v": 2, "dist": 1244, "pick": 14, "delv": 12, "last": "安和國中", "stops": [{"name": "臺灣大道福林路口", "type": "小站", "cap": 28, "stock": 15, "lat": 24.18361, "lon": 120.61377, "demand": 4, "load_after": 4, "action": "取 4 台"}, {"name": "臺灣大道工業區一路口(東南側)", "type": "小站", "cap": 24, "stock": 13, "lat": 24.18258, "lon": 120.61566, "demand": 3, "load_after": 7, "action": "取 3 台"}, {"name": "工業區一路工業區一路 58 巷口", "type": "小站", "cap": 22, "stock": 12, "lat": 0, "lon": 0, "demand": 3, "load_after": 0, "action": "取 3 台"}, {"name": "中工二路福中十街口", "type": "小站", "cap": 28, "stock": 15, "lat": 24.17692, "lon": 120.61593, "demand": 4, "load_after": 14, "action": "取 4 台"}], "active": true}, {"v": 3, "dist": 4744, "pick": 58, "delv": 58, "last": "文華高中(文心路)", "stops": [{"name": "逢甲公園", "type": "小站", "cap": 24, "stock": 13, "lat": 24.17632, "lon": 120.64074, "demand": 3, "load_after": 0, "action": "取 3 台"}, {"name": "臺中至善公園", "type": "小站", "cap": 28, "stock": 15, "lat": 24.17492, "lon": 120.64209, "demand": 4, "load_after": 0, "action": "取 4 台"}, {"name": "上石公園", "type": "小站", "cap": 30, "stock": 16, "lat": 24.17284, "lon": 120.64493, "demand": 4, "load_after": 32, "action": "取 4 台"}, {"name": "惠民公園", "type": "小站", "cap": 24, "stock": 13, "lat": 24.167846, "lon": 120.649484, "demand": 3, "load_after": 21, "action": "取 3 台"}, {"name": "櫻花棒球場", "type": "大站", "cap": 53, "stock": 29, "lat": 24.16867, "lon": 120.6531, "demand": 4, "load_after": 29, "action": "取 4 台"}], "active": true}, {"v": 4, "dist": 3923, "pick": 29, "delv": 29, "last": "臺中綠美圖", "stops": [{"name": "中央公園(遊客服務中心)", "type": "小站", "cap": 40, "stock": 22, "lat": 24.17987, "lon": 120.65571, "demand": 6, "load_after": 0, "action": "取 6 台"}, {"name": "逢大大鵬路口", "type": "小站", "cap": 28, "stock": 15, "lat": 24.17843, "lon": 120.65047, "demand": 4, "load_after": 0, "action": "取 4 台"}], "active": true}, {"v": 5, "dist": 6201, "pick": 67, "delv": 66, "last": "新光/遠百", "stops": [{"name": "大仁公園", "type": "小站", "cap": 22, "stock": 12, "lat": 24.16569, "lon": 120.65929, "demand": 3, "load_after": 3, "action": "取 3 台"}, {"name": "中仁公園", "type": "小站", "cap": 28, "stock": 15, "lat": 24.16561, "lon": 120.66077, "demand": 4, "load_after": 7, "action": "取 4 台"}, {"name": "大弘公園", "type": "小站", "cap": 30, "stock": 16, "lat": 24.1628, "lon": 120.66128, "demand": 4, "load_after": 11, "action": "取 4 台"}, {"name": "大安公園", "type": "小站", "cap": 21, "stock": 12, "lat": 24.15803, "lon": 120.65431, "demand": 4, "load_after": 15, "action": "取 4 台"}, {"name": "頂何厝", "type": "小站", "cap": 28, "stock": 15, "lat": 24.15924, "lon": 120.65532, "demand": 4, "load_after": 0, "action": "取 4 台"}, {"name": "臺灣大道文心路口(西北側)", "type": "小站", "cap": 30, "stock": 16, "lat": 24.163, "lon": 120.64945, "demand": 4, "load_after": 0, "action": "取 4 台"}, {"name": "惠來停車場", "type": "小站", "cap": 41, "stock": 23, "lat": 24.15999, "lon": 120.63964, "demand": 6, "load_after": 22, "action": "取 6 台"}], "active": true}]}, "車隊4_容量40": {"key": "車隊4_容量40", "fleet": 4, "cap_lim": 40, "supply": 250, "need": 292, "theory": 85.6, "total_dist": 21023, "total_delv": 189, "svc_rate": 64.7, "skipped": ["逢甲福星路口", "秋紅谷", "市政府(文心樓)"], "vehicles": [{"v": 1, "dist": 3708, "pick": 29, "delv": 29, "last": "臺中綠美圖", "stops": [{"name": "上石公園", "type": "小站", "cap": 30, "stock": 16, "lat": 24.17284, "lon": 120.64493, "demand": 4, "load_after": 0, "action": "取 4 台"}, {"name": "逢甲大學體育館", "type": "小站", "cap": 32, "stock": 18, "lat": 24.18189, "lon": 120.64869, "demand": 5, "load_after": 22, "action": "取 5 台"}, {"name": "臺中綠美圖", "type": "大站", "cap": 50, "stock": 28, "lat": 24.19406, "lon": 120.65419, "demand": 7, "load_after": 12, "action": "取 7 台"}], "active": true}, {"v": 2, "dist": 6052, "pick": 62, "delv": 62, "last": "捷運市府站(出口", "stops": [{"name": "中央公園(遊客服務中心)", "type": "小站", "cap": 40, "stock": 22, "lat": 24.17987, "lon": 120.65571, "demand": 6, "load_after": 0, "action": "取 6 台"}, {"name": "逢大大鵬路口", "type": "小站", "cap": 28, "stock": 15, "lat": 24.17843, "lon": 120.65047, "demand": 4, "load_after": 0, "action": "取 4 台"}, {"name": "大仁公園", "type": "小站", "cap": 22, "stock": 12, "lat": 24.16569, "lon": 120.65929, "demand": 3, "load_after": 18, "action": "取 3 台"}, {"name": "中仁公園", "type": "小站", "cap": 28, "stock": 15, "lat": 24.16561, "lon": 120.66077, "demand": 4, "load_after": 22, "action": "取 4 台"}, {"name": "三信公園", "type": "小站", "cap": 24, "stock": 13, "lat": 24.16623, "lon": 120.66372, "demand": 3, "load_after": 25, "action": "取 3 台"}, {"name": "高登公園", "type": "小站", "cap": 28, "stock": 15, "lat": 24.17106, "lon": 120.66571, "demand": 4, "load_after": 29, "action": "取 4 台"}, {"name": "皇城帝寶", "type": "小站", "cap": 36, "stock": 20, "lat": 24.17382, "lon": 120.66149, "demand": 6, "load_after": 35, "action": "取 6 台"}, {"name": "大仁國小", "type": "小站", "cap": 25, "stock": 14, "lat": 24.16783, "lon": 120.65778, "demand": 4, "load_after": 8, "action": "取 4 台"}, {"name": "重慶公園(天水西六街)", "type": "小站", "cap": 37, "stock": 20, "lat": 24.16586, "lon": 120.65553, "demand": 5, "load_after": 13, "action": "取 5 台"}, {"name": "青海公園(四川東街)", "type": "小站", "cap": 33, "stock": 18, "lat": 24.16441, "lon": 120.65334, "demand": 5, "load_after": 18, "action": "取 5 台"}], "active": true}, {"v": 3, "dist": 5468, "pick": 36, "delv": 36, "last": "臺灣大道新興路口", "stops": [{"name": "玉門西屯路三段口", "type": "小站", "cap": 22, "stock": 12, "lat": 24.190807, "lon": 120.610831, "demand": 3, "load_after": 3, "action": "取 3 台"}, {"name": "國安二號公園", "type": "小站", "cap": 21, "stock": 12, "lat": 24.19078, "lon": 120.61159, "demand": 4, "load_after": 7, "action": "取 4 台"}, {"name": "國安一號公園", "type": "小站", "cap": 30, "stock": 16, "lat": 24.19061, "lon": 120.61472, "demand": 4, "load_after": 11, "action": "取 4 台"}, {"name": "福科國民中學", "type": "小站", "cap": 28, "stock": 15, "lat": 24.18972, "lon": 120.61381, "demand": 4, "load_after": 15, "action": "取 4 台"}, {"name": "臺灣大道福林路口", "type": "小站", "cap": 28, "stock": 15, "lat": 24.18361, "lon": 120.61377, "demand": 4, "load_after": 19, "action": "取 4 台"}, {"name": "臺灣大道工業區一路口(東南側)", "type": "小站", "cap": 24, "stock": 13, "lat": 24.18258, "lon": 120.61566, "demand": 3, "load_after": 22, "action": "取 3 台"}, {"name": "中工二路福中十街口", "type": "小站", "cap": 28, "stock": 15, "lat": 24.17692, "lon": 120.61593, "demand": 4, "load_after": 14, "action": "取 4 台"}, {"name": "工業區一路工業區一路 58 巷口", "type": "小站", "cap": 22, "stock": 12, "lat": 0, "lon": 0, "demand": 3, "load_after": 0, "action": "取 3 台"}, {"name": "臺灣大道約農路口", "type": "小站", "cap": 45, "stock": 25, "lat": 24.18269, "lon": 120.60287, "demand": 7, "load_after": 12, "action": "取 7 台"}], "active": true}, {"v": 4, "dist": 5795, "pick": 63, "delv": 62, "last": "福星公園", "stops": [{"name": "頂何厝", "type": "小站", "cap": 28, "stock": 15, "lat": 24.15924, "lon": 120.65532, "demand": 4, "load_after": 4, "action": "取 4 台"}, {"name": "大隆東興路口", "type": "大站", "cap": 48, "stock": 26, "lat": 24.15573, "lon": 120.65409, "demand": 4, "load_after": 0, "action": "取 4 台"}, {"name": "臺灣大道文心路口(西北側)", "type": "小站", "cap": 30, "stock": 16, "lat": 24.163, "lon": 120.64945, "demand": 4, "load_after": 0, "action": "取 4 台"}, {"name": "臺中市政府(惠中路)", "type": "小站", "cap": 42, "stock": 23, "lat": 24.16303, "lon": 120.64574, "demand": 6, "load_after": 14, "action": "取 6 台"}, {"name": "惠來公園", "type": "小站", "cap": 25, "stock": 14, "lat": 24.15571, "lon": 120.639, "demand": 6, "load_after": 24, "action": "取 6 台"}, {"name": "福星公園", "type": "大站", "cap": 55, "stock": 30, "lat": 24.17242, "lon": 120.6481, "demand": 4, "load_after": 0, "action": "取 4 台"}], "active": true}]}, "車隊4_容量50": {"key": "車隊4_容量50", "fleet": 4, "cap_lim": 50, "supply": 250, "need": 292, "theory": 85.6, "total_dist": 20148, "total_delv": 189, "svc_rate": 64.7, "skipped": ["逢甲福星路口", "秋紅谷", "市政府(文心樓)"], "vehicles": [{"v": 1, "dist": 4737, "pick": 54, "delv": 54, "last": "臺中國家歌劇院", "stops": [{"name": "惠來公園", "type": "小站", "cap": 25, "stock": 14, "lat": 24.15571, "lon": 120.639, "demand": 4, "load_after": 4, "action": "取 4 台"}, {"name": "惠來停車場", "type": "小站", "cap": 41, "stock": 23, "lat": 24.15999, "lon": 120.63964, "demand": 7, "load_after": 11, "action": "取 7 台"}, {"name": "臺中市議會", "type": "小站", "cap": 27, "stock": 15, "lat": 24.15805, "lon": 120.64403, "demand": 4, "load_after": 15, "action": "取 4 台"}, {"name": "市政公園停車場", "type": "小站", "cap": 38, "stock": 21, "lat": 24.16099, "lon": 120.64453, "demand": 6, "load_after": 0, "action": "取 6 台"}, {"name": "臺灣大道文心路口(西北側)", "type": "小站", "cap": 30, "stock": 16, "lat": 24.163, "lon": 120.64945, "demand": 4, "load_after": 0, "action": "取 4 台"}, {"name": "臺中市政府(惠中路)", "type": "小站", "cap": 42, "stock": 23, "lat": 24.16303, "lon": 120.64574, "demand": 6, "load_after": 13, "action": "取 6 台"}, {"name": "上德公園", "type": "小站", "cap": 24, "stock": 13, "lat": 24.16931, "lon": 120.64451, "demand": 4, "load_after": 0, "action": "取 4 台"}], "active": true}, {"v": 2, "dist": 5970, "pick": 72, "delv": 70, "last": "文華高中(文心路)", "stops": [{"name": "逢甲公園", "type": "小站", "cap": 24, "stock": 13, "lat": 24.17632, "lon": 120.64074, "demand": 3, "load_after": 0, "action": "取 3 台"}, {"name": "上石國小(湳子巷)", "type": "小站", "cap": 40, "stock": 22, "lat": 24.17343, "lon": 120.64296, "demand": 6, "load_after": 0, "action": "取 6 台"}, {"name": "上石公園", "type": "小站", "cap": 30, "stock": 16, "lat": 24.17284, "lon": 120.64493, "demand": 4, "load_after": 17, "action": "取 4 台"}, {"name": "長安公園", "type": "小站", "cap": 25, "stock": 14, "lat": 24.17021, "lon": 120.65429, "demand": 4, "load_after": 0, "action": "取 4 台"}, {"name": "重慶公園(天水西六街)", "type": "小站", "cap": 37, "stock": 20, "lat": 24.16586, "lon": 120.65553, "demand": 5, "load_after": 9, "action": "取 5 台"}, {"name": "青海公園(四川東街)", "type": "小站", "cap": 33, "stock": 18, "lat": 24.16441, "lon": 120.65334, "demand": 5, "load_after": 14, "action": "取 5 台"}, {"name": "大安公園", "type": "小站", "cap": 21, "stock": 12, "lat": 24.15803, "lon": 120.65431, "demand": 4, "load_after": 18, "action": "取 4 台"}, {"name": "臺灣大道太原路口", "type": "小站", "cap": 21, "stock": 12, "lat": 24.15859, "lon": 120.65734, "demand": 4, "load_after": 18, "action": "取 4 台"}, {"name": "大弘公園", "type": "小站", "cap": 30, "stock": 16, "lat": 24.1628, "lon": 120.66128, "demand": 4, "load_after": 22, "action": "取 4 台"}, {"name": "中仁公園", "type": "小站", "cap": 28, "stock": 15, "lat": 24.16561, "lon": 120.66077, "demand": 4, "load_after": 26, "action": "取 4 台"}, {"name": "大仁公園", "type": "小站", "cap": 22, "stock": 12, "lat": 24.16569, "lon": 120.65929, "demand": 3, "load_after": 29, "action": "取 3 台"}, {"name": "大仁國小", "type": "小站", "cap": 25, "stock": 14, "lat": 24.16783, "lon": 120.65778, "demand": 4, "load_after": 33, "action": "取 4 台"}], "active": true}, {"v": 3, "dist": 5518, "pick": 36, "delv": 36, "last": "臺灣大道新興路口", "stops": [{"name": "福科國民中學", "type": "小站", "cap": 28, "stock": 15, "lat": 24.18972, "lon": 120.61381, "demand": 4, "load_after": 4, "action": "取 4 台"}, {"name": "國安二號公園", "type": "小站", "cap": 21, "stock": 12, "lat": 24.19078, "lon": 120.61159, "demand": 4, "load_after": 8, "action": "取 4 台"}, {"name": "福科玉門路口", "type": "小站", "cap": 23, "stock": 13, "lat": 24.187196, "lon": 120.610396, "demand": 3, "load_after": 0, "action": "取 3 台"}, {"name": "臺灣大道工業區一路口(東南側)", "type": "小站", "cap": 24, "stock": 13, "lat": 24.18258, "lon": 120.61566, "demand": 3, "load_after": 22, "action": "取 3 台"}, {"name": "中工二路福中十街口", "type": "小站", "cap": 28, "stock": 15, "lat": 24.17692, "lon": 120.61593, "demand": 4, "load_after": 14, "action": "取 4 台"}, {"name": "工業區一路工業區一路 58 巷口", "type": "小站", "cap": 22, "stock": 12, "lat": 0, "lon": 0, "demand": 3, "load_after": 0, "action": "取 3 台"}, {"name": "臺灣大道約農路口", "type": "小站", "cap": 45, "stock": 25, "lat": 24.18269, "lon": 120.60287, "demand": 7, "load_after": 12, "action": "取 7 台"}], "active": true}, {"v": 4, "dist": 3923, "pick": 29, "delv": 29, "last": "臺中綠美圖", "stops": [{"name": "逢大大鵬路口", "type": "小站", "cap": 28, "stock": 15, "lat": 24.17843, "lon": 120.65047, "demand": 4, "load_after": 0, "action": "取 4 台"}, {"name": "文修公園", "type": "小站", "cap": 22, "stock": 12, "lat": 24.18234, "lon": 120.642, "demand": 3, "load_after": 0, "action": "取 3 台"}, {"name": "臺中綠美圖", "type": "大站", "cap": 50, "stock": 28, "lat": 24.19406, "lon": 120.65419, "demand": 4, "load_after": 19, "action": "取 4 台"}], "active": true}]}, "車隊3_容量40": {"key": "車隊3_容量40", "fleet": 3, "cap_lim": 40, "supply": 250, "need": 292, "theory": 85.6, "total_dist": 15762, "total_delv": 90, "svc_rate": 56.5, "skipped": ["逢甲福星路口", "秋紅谷", "市政府(文心樓)", "臺中綠美圖", "臺灣大道新興路口"], "vehicles": [{"v": 1, "dist": 5795, "pick": 66, "delv": 66, "last": "大隆東興路口", "stops": [{"name": "惠來公園", "type": "小站", "cap": 25, "stock": 14, "lat": 24.15571, "lon": 120.639, "demand": 6, "load_after": 10, "action": "取 6 台"}, {"name": "上德公園", "type": "小站", "cap": 24, "stock": 13, "lat": 24.16931, "lon": 120.64451, "demand": 7, "load_after": 17, "action": "取 7 台"}, {"name": "上石惠來路口", "type": "小站", "cap": 25, "stock": 14, "lat": 24.16644, "lon": 120.64412, "demand": 4, "load_after": 29, "action": "取 4 台"}, {"name": "臺灣大道文心路口(西北側)", "type": "小站", "cap": 30, "stock": 16, "lat": 24.163, "lon": 120.64945, "demand": 4, "load_after": 0, "action": "取 4 台"}, {"name": "大安公園", "type": "小站", "cap": 21, "stock": 12, "lat": 24.15803, "lon": 120.65431, "demand": 4, "load_after": 4, "action": "取 4 台"}], "active": true}, {"v": 2, "dist": 2611, "pick": 26, "delv": 24, "last": "安和國中", "stops": [{"name": "福科國民中學", "type": "小站", "cap": 28, "stock": 15, "lat": 24.18972, "lon": 120.61381, "demand": 4, "load_after": 4, "action": "取 4 台"}, {"name": "國安二號公園", "type": "小站", "cap": 21, "stock": 12, "lat": 24.19078, "lon": 120.61159, "demand": 4, "load_after": 8, "action": "取 4 台"}, {"name": "福科玉門路口", "type": "小站", "cap": 23, "stock": 13, "lat": 24.187196, "lon": 120.610396, "demand": 3, "load_after": 11, "action": "取 3 台"}, {"name": "臺灣大道福林路口", "type": "小站", "cap": 28, "stock": 15, "lat": 24.18361, "lon": 120.61377, "demand": 4, "load_after": 7, "action": "取 4 台"}, {"name": "工業區一路工業區一路 58 巷口", "type": "小站", "cap": 22, "stock": 12, "lat": 0, "lon": 0, "demand": 3, "load_after": 0, "action": "取 3 台"}, {"name": "中工二路福中十街口", "type": "小站", "cap": 28, "stock": 15, "lat": 24.17692, "lon": 120.61593, "demand": 4, "load_after": 14, "action": "取 4 台"}, {"name": "逢大大鵬路口", "type": "小站", "cap": 28, "stock": 15, "lat": 24.17843, "lon": 120.65047, "demand": 4, "load_after": 0, "action": "取 4 台"}, {"name": "僑光科技大學", "type": "小站", "cap": 43, "stock": 24, "lat": 24.18726, "lon": 120.64393, "demand": 5, "load_after": 13, "action": "取 5 台"}, {"name": "文修公園", "type": "小站", "cap": 22, "stock": 12, "lat": 24.18234, "lon": 120.642, "demand": 3, "load_after": 6, "action": "取 3 台"}, {"name": "逢甲公園", "type": "小站", "cap": 24, "stock": 13, "lat": 24.17632, "lon": 120.64074, "demand": 3, "load_after": 9, "action": "取 3 台"}, {"name": "臺中至善公園", "type": "小站", "cap": 28, "stock": 15, "lat": 24.17492, "lon": 120.64209, "demand": 4, "load_after": 13, "action": "取 4 台"}, {"name": "上石國小(湳子巷)", "type": "小站", "cap": 40, "stock": 22, "lat": 24.17343, "lon": 120.64296, "demand": 6, "load_after": 0, "action": "取 6 台"}, {"name": "上石公園", "type": "小站", "cap": 30, "stock": 16, "lat": 24.17284, "lon": 120.64493, "demand": 4, "load_after": 23, "action": "取 4 台"}, {"name": "櫻花棒球場", "type": "大站", "cap": 53, "stock": 29, "lat": 24.16867, "lon": 120.6531, "demand": 4, "load_after": 13, "action": "取 4 台"}, {"name": "大仁國小", "type": "小站", "cap": 25, "stock": 14, "lat": 24.16783, "lon": 120.65778, "demand": 4, "load_after": 19, "action": "取 4 台"}, {"name": "大仁公園", "type": "小站", "cap": 22, "stock": 12, "lat": 24.16569, "lon": 120.65929, "demand": 3, "load_after": 22, "action": "取 3 台"}, {"name": "中仁公園", "type": "小站", "cap": 28, "stock": 15, "lat": 24.16561, "lon": 120.66077, "demand": 4, "load_after": 26, "action": "取 4 台"}, {"name": "大弘公園", "type": "小站", "cap": 30, "stock": 16, "lat": 24.1628, "lon": 120.66128, "demand": 4, "load_after": 30, "action": "取 4 台"}, {"name": "三信公園", "type": "小站", "cap": 24, "stock": 13, "lat": 24.16623, "lon": 120.66372, "demand": 3, "load_after": 33, "action": "取 3 台"}], "active": true}]}, "車隊3_容量50": {"key": "車隊3_容量50", "fleet": 3, "cap_lim": 50, "supply": 250, "need": 292, "theory": 85.6, "total_dist": 16859, "total_delv": 161, "svc_rate": 55.1, "skipped": ["逢甲福星路口", "市政府(文心樓)", "文華高中(文心路)", "漢 翔福星北路口", "臺中綠美圖"], "vehicles": [{"v": 1, "dist": 4270, "pick": 47, "delv": 46, "last": "秋紅谷", "stops": [{"name": "逢大大鵬路口", "type": "小站", "cap": 28, "stock": 15, "lat": 24.17843, "lon": 120.65047, "demand": 4, "load_after": 0, "action": "取 4 台"}, {"name": "惠民公園", "type": "小站", "cap": 24, "stock": 13, "lat": 24.167846, "lon": 120.649484, "demand": 3, "load_after": 15, "action": "取 3 台"}, {"name": "上德公園", "type": "小站", "cap": 24, "stock": 13, "lat": 24.16931, "lon": 120.64451, "demand": 3, "load_after": 18, "action": "取 3 台"}, {"name": "福星公園", "type": "大站", "cap": 55, "stock": 30, "lat": 24.17242, "lon": 120.6481, "demand": 5, "load_after": 23, "action": "取 5 台"}, {"name": "上石公園", "type": "小站", "cap": 30, "stock": 16, "lat": 24.17284, "lon": 120.64493, "demand": 4, "load_after": 0, "action": "取 4 台"}, {"name": "逢甲公園", "type": "小站", "cap": 24, "stock": 13, "lat": 24.17632, "lon": 120.64074, "demand": 6, "load_after": 0, "action": "取 6 台"}], "active": true}, {"v": 2, "dist": 5468, "pick": 36, "delv": 36, "last": "臺灣大道新興路口", "stops": [{"name": "玉門西屯路三段口", "type": "小站", "cap": 22, "stock": 12, "lat": 24.190807, "lon": 120.610831, "demand": 3, "load_after": 3, "action": "取 3 台"}, {"name": "國安二號公園", "type": "小站", "cap": 21, "stock": 12, "lat": 24.19078, "lon": 120.61159, "demand": 4, "load_after": 7, "action": "取 4 台"}, {"name": "國安一號公園", "type": "小站", "cap": 30, "stock": 16, "lat": 24.19061, "lon": 120.61472, "demand": 4, "load_after": 11, "action": "取 4 台"}, {"name": "福科國民中學", "type": "小站", "cap": 28, "stock": 15, "lat": 24.18972, "lon": 120.61381, "demand": 4, "load_after": 15, "action": "取 4 台"}, {"name": "臺灣大道福林路口", "type": "小站", "cap": 28, "stock": 15, "lat": 24.18361, "lon": 120.61377, "demand": 4, "load_after": 19, "action": "取 4 台"}, {"name": "臺灣大道工業區一路口(東南側)", "type": "小站", "cap": 24, "stock": 13, "lat": 24.18258, "lon": 120.61566, "demand": 3, "load_after": 22, "action": "取 3 台"}, {"name": "工業區一路工業區一路 58 巷口", "type": "小站", "cap": 22, "stock": 12, "lat": 0, "lon": 0, "demand": 3, "load_after": 0, "action": "取 3 台"}, {"name": "臺灣大道約農路口", "type": "小站", "cap": 45, "stock": 25, "lat": 24.18269, "lon": 120.60287, "demand": 7, "load_after": 12, "action": "取 7 台"}], "active": true}, {"v": 3, "dist": 7121, "pick": 82, "delv": 79, "last": "大隆東興路口", "stops": [{"name": "中仁公園", "type": "小站", "cap": 28, "stock": 15, "lat": 24.16561, "lon": 120.66077, "demand": 4, "load_after": 4, "action": "取 4 台"}, {"name": "大仁公園", "type": "小站", "cap": 22, "stock": 12, "lat": 24.16569, "lon": 120.65929, "demand": 3, "load_after": 7, "action": "取 3 台"}, {"name": "大仁國小", "type": "小站", "cap": 25, "stock": 14, "lat": 24.16783, "lon": 120.65778, "demand": 4, "load_after": 11, "action": "取 4 台"}, {"name": "長安公園", "type": "小站", "cap": 25, "stock": 14, "lat": 24.17021, "lon": 120.65429, "demand": 4, "load_after": 15, "action": "取 4 台"}, {"name": "青海公園(四川東街)", "type": "小站", "cap": 33, "stock": 18, "lat": 24.16441, "lon": 120.65334, "demand": 5, "load_after": 18, "action": "取 5 台"}, {"name": "臺灣大道文心路口(西北側)", "type": "小站", "cap": 30, "stock": 16, "lat": 24.163, "lon": 120.64945, "demand": 4, "load_after": 0, "action": "取 4 台"}, {"name": "臺中市政府(惠中路)", "type": "小站", "cap": 42, "stock": 23, "lat": 24.16303, "lon": 120.64574, "demand": 6, "load_after": 28, "action": "取 6 台"}, {"name": "新光/遠百", "type": "大站", "cap": 84, "stock": 46, "lat": 24.16614, "lon": 120.64292, "demand": 4, "load_after": 32, "action": "取 4 台"}, {"name": "市政公園停車場", "type": "小站", "cap": 38, "stock": 21, "lat": 24.16099, "lon": 120.64453, "demand": 6, "load_after": 0, "action": "取 6 台"}, {"name": "頂何厝", "type": "小站", "cap": 28, "stock": 15, "lat": 24.15924, "lon": 120.65532, "demand": 4, "load_after": 7, "action": "取 4 台"}, {"name": "大安公園", "type": "小站", "cap": 21, "stock": 12, "lat": 24.15803, "lon": 120.65431, "demand": 4, "load_after": 11, "action": "取 4 台"}], "active": true}]}};
+const CAPS   = [30,40,50];
+const FLEETS = [3,4,5];
+const COLORS = ["#E84855","#3A86FF","#2DC653","#FF9F1C","#C77DFF"];
+const DARK   = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+const LIGHT  = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+
+let curKey = "車隊3_容量30";
+let visV = {}, bgDark=true, speed=0.024, animFrame=null, animating=false, animVehicles=[];
+
+// Build grid
+const gridBody = document.getElementById("grid-body");
+CAPS.forEach(cap => {
+  const row = document.createElement("div");
+  row.className = "grid-row";
+  // Row label
+  const lbl = document.createElement("div");
+  lbl.className = "row-label";
+  lbl.innerHTML = `${cap}<br>台`;
+  row.appendChild(lbl);
+  // Cells
+  FLEETS.forEach(fleet => {
+    const key = `車隊${fleet}_容量${cap}`;
+    const sc  = ALL[key];
+    const cell = document.createElement("div");
+    cell.className = "gc" + (key===curKey?" active":"");
+    cell.dataset.key = key;
+    if (sc) {
+      const sc2 = sc.svc_rate>=80?"s-green":sc.svc_rate>=60?"s-orange":"s-red";
+      cell.innerHTML = `<div class="fleet-num">${fleet}輛</div><div class="svc-pct ${sc2}">${sc.svc_rate}%</div>`;
+      cell.addEventListener("click", () => selectScenario(key));
+    } else {
+      cell.innerHTML = `<div class="fleet-num" style="color:#333">${fleet}輛</div><div class="svc-pct" style="color:#333">—</div>`;
+    }
+    row.appendChild(cell);
+  });
+  gridBody.appendChild(row);
+});
+
+// Map
+const map = L.map("map",{zoomControl:true}).setView([24.173,120.642],14);
+let tile = L.tileLayer(DARK,{attribution:"CartoDB",maxZoom:19}).addTo(map);
+
+// Layer cache
+const cache = {};
+const allCoords = {};
+Object.values(ALL).forEach(sc => sc.vehicles.forEach(v => v.stops.forEach(s => {
+  if(s.lat&&s.lon) allCoords[s.name]={lat:s.lat,lon:s.lon};
+})));
+
+function buildLayers(key) {
+  if (cache[key]) return cache[key];
+  const sc=ALL[key], lines=[], staMrks=[], skipMrks=[];
+  sc.vehicles.forEach((v,i)=>{
+    const ll=v.stops.filter(s=>s.lat&&s.lon).map(s=>[s.lat,s.lon]);
+    if(ll.length>1) lines.push(L.polyline(ll,{color:COLORS[i],weight:3,opacity:.5,dashArray:"7,4"}));
+  });
+  const seen={};
+  sc.vehicles.forEach(v=>v.stops.forEach(s=>{
+    if(seen[s.name]||!s.lat) return; seen[s.name]=true;
+    const col=s.type==="大站"?"#ff6b35":"#4ecdc4";
+    staMrks.push(L.circleMarker([s.lat,s.lon],{radius:s.type==="大站"?9:6,color:"#fff",weight:1.2,fillColor:col,fillOpacity:.9})
+      .bindPopup(`<b>${s.name}</b><br>${s.type} | 車位:${s.cap} 現有:${s.stock}台`));
+  }));
+  sc.skipped.forEach(name=>{
+    const c=allCoords[name]; if(!c) return;
+    skipMrks.push(L.circleMarker([c.lat,c.lon],{radius:9,color:"#ff4444",weight:2,fillColor:"#1a0000",fillOpacity:.8})
+      .bindPopup(`<b>${name}</b><br>❌ 未服務大站`));
+  });
+  return cache[key]={lines,staMrks,skipMrks};
+}
+
+function clearAll(){Object.values(cache).forEach(lg=>{lg.lines.forEach(l=>l.remove());lg.staMrks.forEach(m=>m.remove());lg.skipMrks.forEach(m=>m.remove());})}
+
+function showLayers(key){
+  clearAll();
+  const lg=buildLayers(key),sc=ALL[key];
+  lg.lines.forEach((l,i)=>{if(visV[key]&&visV[key][i])l.addTo(map);});
+  lg.staMrks.forEach(m=>m.addTo(map));
+  lg.skipMrks.forEach(m=>m.addTo(map));
+}
+
+function initVisV(key){
+  if(!visV[key]){visV[key]={};ALL[key].vehicles.forEach((_,i)=>visV[key][i]=true);}
+}
+
+function updateVlist(key){
+  const sc=ALL[key],div=document.getElementById("vlist");
+  div.innerHTML="";
+  sc.vehicles.forEach((v,i)=>{
+    const row=document.createElement("div"); row.className="vr";
+    row.innerHTML=`<div class="dot" style="background:${COLORS[i]}"></div>
+      <div class="vi">車隊${v.v} · ${v.stops.length}站 · ${(v.dist/1000).toFixed(1)}km · 取${v.pick}/送${v.delv}台</div>
+      <div class="eye" data-vi="${i}">${visV[key][i]?"👁":"🚫"}</div>`;
+    row.querySelector(".eye").addEventListener("click",function(){
+      const vi=parseInt(this.dataset.vi); visV[key][vi]=!visV[key][vi];
+      this.textContent=visV[key][vi]?"👁":"🚫";
+      const lg=buildLayers(key);
+      if(visV[key][vi])lg.lines[vi].addTo(map); else lg.lines[vi].remove();
+    });
+    div.appendChild(row);
+  });
+}
+
+function updateStats(key){
+  const sc=ALL[key];
+  const col=sc.svc_rate>=80?"#4ecdc4":sc.svc_rate>=60?"#ffb347":"#ff7070";
+  document.getElementById("stats").innerHTML=
+    `供給 <b>${sc.supply}</b>台 ｜ 需求 <b>${sc.need}</b>台 ｜ 理論上限 <b>${sc.theory}%</b><br>`+
+    `總距離 <b>${(sc.total_dist/1000).toFixed(1)}</b> km ｜ 服務率 <b style="color:${col}">${sc.svc_rate}%</b>`+
+    (sc.skipped&&sc.skipped.length?`<br><span style="color:#ff7070">未服務：${sc.skipped.join("、")}</span>`:"");
+}
+
+function initAnim(key){
+  animVehicles.forEach(av=>{av.marker&&av.marker.remove();av.trail&&av.trail.remove();});
+  animVehicles=[];
+  ALL[key].vehicles.forEach((v,i)=>{
+    const first=v.stops.find(s=>s.lat&&s.lon); if(!first) return;
+    const icon=L.divIcon({html:`<div style="width:20px;height:20px;border-radius:50%;background:${COLORS[i]};border:2px solid #fff;box-shadow:0 0 8px ${COLORS[i]};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:bold;color:#fff">${v.v}</div>`,iconSize:[20,20],iconAnchor:[10,10],className:""});
+    animVehicles.push({v,i,marker:L.marker([first.lat,first.lon],{icon,zIndexOffset:1000}).addTo(map),trail:L.polyline([],{color:COLORS[i],weight:4,opacity:.9}).addTo(map),stopIdx:0,t:0,done:false});
+  });
+}
+
+const toast=document.getElementById("toast");
+function showToast(h){toast.innerHTML=h;toast.style.display="block";clearTimeout(toast._t);toast._t=setTimeout(()=>toast.style.display="none",2400);}
+function lerp(a,b,t){return[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];}
+
+function animate(){
+  let done=true;
+  animVehicles.forEach(av=>{
+    if(av.done||!visV[curKey][av.i]) return;
+    done=false;
+    const stops=av.v.stops.filter(s=>s.lat&&s.lon);
+    if(av.stopIdx>=stops.length-1){av.done=true;return;}
+    const from=[stops[av.stopIdx].lat,stops[av.stopIdx].lon];
+    const to=[stops[av.stopIdx+1].lat,stops[av.stopIdx+1].lon];
+    av.t+=speed;
+    if(av.t>=1){
+      av.t=0;av.stopIdx++;
+      const s=stops[av.stopIdx];
+      av.trail.addLatLng([s.lat,s.lon]);
+      const tc=s.type==="大站"?"#ff6b35":"#4ecdc4";
+      showToast(`<b style="color:${tc}">[${s.type}]</b> <b>${s.name}</b> · 車隊${av.v.v} · ${s.action} · 剩${s.load_after}台`);
+    } else { av.marker.setLatLng(lerp(from,to,av.t)); }
+  });
+  if(!done) animFrame=requestAnimationFrame(animate);
+  else{document.getElementById("bp").textContent="✓ 完成";animating=false;}
+}
+
+function stopAnim(){if(animFrame)cancelAnimationFrame(animFrame);animating=false;document.getElementById("bp").textContent="▶ 播放";}
+
+function selectScenario(key){
+  stopAnim(); curKey=key;
+  initVisV(key); showLayers(key); updateVlist(key); updateStats(key); initAnim(key);
+  document.querySelectorAll(".gc").forEach(b=>b.classList.toggle("active",b.dataset.key===key));
+}
+
+// Init
+initVisV(curKey); buildLayers(curKey); selectScenario(curKey);
+
+document.getElementById("bp").addEventListener("click",()=>{if(animating)return;animating=true;document.getElementById("bp").textContent="⏸ 播放中...";animFrame=requestAnimationFrame(animate);});
+document.getElementById("br").addEventListener("click",()=>{stopAnim();selectScenario(curKey);});
+document.getElementById("spd").addEventListener("input",e=>{const v=parseInt(e.target.value);speed=0.008*v;document.getElementById("sv").textContent=v+"x";});
+
+let open=true;
+document.getElementById("ph").addEventListener("click",()=>{open=!open;document.getElementById("pb").style.display=open?"block":"none";document.getElementById("tb").textContent=open?"▲":"▼";});
+
+let dark=true;
+document.getElementById("bgt").addEventListener("click",function(){dark=!dark;tile.remove();tile=L.tileLayer(dark?DARK:LIGHT,{attribution:"CartoDB",maxZoom:19}).addTo(map);this.textContent=dark?"☀ 白底":"🌙 黑底";});
+</script>
+</body>
+</html>
