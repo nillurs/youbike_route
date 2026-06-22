@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JIT 航速建議｜港外拋錨等待最小化</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root{
+    --navy:#0a2540;--navy-2:#0d3a66;--blue:#0f6fc6;--cyan:#27c4d9;
+    --bg:#eef3f8;--card:#ffffff;--line:#dce7f1;--ink:#15293f;--muted:#64798e;
+    --green:#10a36b;--green-bg:#e3f6ee;--amber:#e8930c;--amber-bg:#fdf2dd;
+    --red:#d8443c;--red-bg:#fbe7e6;--blue-bg:#e6f0fb;
+    --radius:14px;--shadow:0 6px 22px rgba(10,37,64,.08);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",-apple-system,"Segoe UI",sans-serif;
+    background:var(--bg);color:var(--ink);line-height:1.6;-webkit-font-smoothing:antialiased}
+  button{font-family:inherit;cursor:pointer;border:none}
+  input,select{font-family:inherit;font-size:.95rem}
+
+  header{background:linear-gradient(120deg,var(--navy),var(--blue));color:#fff;box-shadow:var(--shadow)}
+  .hbar{max-width:1100px;margin:0 auto;padding:16px 20px;display:flex;align-items:center;gap:12px}
+  .brand{display:flex;align-items:center;gap:11px;font-weight:800;font-size:1.18rem}
+  .brand .mk{width:36px;height:36px;border-radius:10px;background:rgba(255,255,255,.16);display:grid;place-items:center;font-size:1.2rem}
+  .brand small{display:block;font-size:.62rem;font-weight:500;opacity:.82;letter-spacing:.08em}
+
+  main{max-width:1100px;margin:0 auto;padding:24px 20px 60px}
+  .intro{background:var(--blue-bg);border:1px solid #cfe2f6;border-radius:var(--radius);padding:14px 18px;font-size:.9rem;color:var(--navy-2);margin-bottom:22px}
+  .intro b{color:var(--blue)}
+
+  .layout{display:grid;grid-template-columns:380px 1fr;gap:22px;align-items:start}
+
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:22px}
+  .panel h3{font-size:1.05rem;font-weight:800;margin-bottom:4px}
+  .panel .desc{font-size:.82rem;color:var(--muted);margin-bottom:16px}
+
+  .field{margin-bottom:14px}
+  .field label{display:block;font-size:.82rem;font-weight:700;margin-bottom:6px}
+  .field label .u{font-weight:500;color:var(--muted);font-size:.78rem}
+  .field input,.field select{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;outline:none;transition:.2s;background:#fff}
+  .field input:focus,.field select:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(15,111,198,.13)}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+  .adv-toggle{font-size:.82rem;color:var(--blue);font-weight:700;cursor:pointer;user-select:none;margin:6px 0 0;display:inline-block}
+  .adv{display:none;border-top:1px dashed var(--line);margin-top:14px;padding-top:14px}
+  .adv.open{display:block}
+  .hint{font-size:.78rem;color:var(--muted)}
+  .hint.bad{color:var(--red);font-weight:600}
+
+  /* results */
+  .reco{background:linear-gradient(125deg,var(--navy),var(--blue));color:#fff;border-radius:var(--radius);padding:26px;text-align:center;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .reco::after{content:"";position:absolute;right:-30px;bottom:-30px;width:160px;height:160px;border-radius:50%;background:rgba(255,255,255,.06)}
+  .reco .lbl{font-size:.85rem;letter-spacing:.14em;opacity:.85;text-transform:uppercase}
+  .reco .big{font-size:3.6rem;font-weight:800;line-height:1;margin:8px 0;font-variant-numeric:tabular-nums}
+  .reco .big span{font-size:1.4rem;font-weight:600;opacity:.85}
+  .reco .eta{font-size:.95rem;opacity:.9}
+  .reco .note{margin-top:14px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);border-radius:10px;padding:9px 14px;font-size:.85rem;display:inline-block}
+  .reco.warn{background:linear-gradient(125deg,#8a5a09,var(--amber))}
+
+  .savings{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:18px}
+  .save{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:15px;text-align:center}
+  .save .v{font-size:1.5rem;font-weight:800;color:var(--green);line-height:1;font-variant-numeric:tabular-nums}
+  .save .v.neutral{color:var(--muted)}
+  .save .l{font-size:.76rem;color:var(--muted);margin-top:6px}
+
+  .compare{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:22px;margin-top:18px}
+  .compare h3{font-size:1.05rem;font-weight:800;margin-bottom:16px}
+  .cmp-row{display:grid;grid-template-columns:120px 1fr 1fr;gap:12px;align-items:center;padding:11px 0;border-bottom:1px solid var(--line);font-size:.9rem}
+  .cmp-row:last-child{border-bottom:none}
+  .cmp-row .h{font-weight:700;color:var(--muted)}
+  .cmp-head{font-weight:800;color:var(--ink)}
+  .cmp-head .tag{display:inline-block;font-size:.72rem;padding:2px 9px;border-radius:50px;margin-bottom:2px}
+  .tag-trad{background:var(--red-bg);color:var(--red)}
+  .tag-jit{background:var(--green-bg);color:var(--green)}
+  .cmp-val{font-weight:700;font-variant-numeric:tabular-nums}
+
+  /* fuel bar viz */
+  .viz{margin-top:18px}
+  .viz .vrow{margin-bottom:14px}
+  .viz .vtop{display:flex;justify-content:space-between;font-size:.85rem;margin-bottom:6px}
+  .viz .vtop b{font-weight:800}
+  .vbar{height:26px;border-radius:8px;background:#f0f4f8;overflow:hidden;display:flex}
+  .vbar .sail{background:linear-gradient(90deg,var(--blue),var(--cyan));height:100%}
+  .vbar .anchor{background:repeating-linear-gradient(45deg,#d8443c,#d8443c 6px,#c23c34 6px,#c23c34 12px);height:100%}
+  .legend{display:flex;gap:18px;font-size:.78rem;color:var(--muted);margin-top:4px}
+  .legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+  .legend .l-sail{background:var(--blue)}
+  .legend .l-anchor{background:#d8443c}
+
+  /* map */
+  .mapcard{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:22px}
+  .maphead{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+  .maphead h3{font-size:1.05rem;font-weight:800}
+  .maphead .destsel{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .maphead .destsel label{font-size:.82rem;font-weight:700;color:var(--muted)}
+  .maphead select{padding:8px 12px;border:1px solid var(--line);border-radius:9px;outline:none;font-weight:600}
+  #map{height:400px;border-radius:12px;overflow:hidden;z-index:1}
+  .maptip{font-size:.82rem;color:var(--muted);margin-top:12px;display:flex;gap:18px;flex-wrap:wrap}
+  .maptip b{color:var(--ink)}
+  .route-info{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+  .ri{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 14px;font-size:.85rem;flex:1;min-width:130px}
+  .ri .k{color:var(--muted);font-size:.76rem}
+  .ri .v{font-weight:800;font-variant-numeric:tabular-nums}
+  .leaflet-container{font-family:inherit}
+  .mk-dest{background:var(--blue);width:14px;height:14px;border-radius:50%;border:3px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.4)}
+  .mk-dest.active{background:var(--amber);width:20px;height:20px}
+  .mk-start{background:var(--green);width:18px;height:18px;border-radius:50%;border:3px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.5)}
+
+  footer{text-align:center;color:var(--muted);font-size:.8rem;padding:24px;margin-top:30px;border-top:1px solid var(--line)}
+  footer b{color:var(--ink)}
+
+  @media(max-width:820px){.layout{grid-template-columns:1fr}.savings{grid-template-columns:repeat(2,1fr)}.reco .big{font-size:3rem}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hbar">
+    <div class="brand"><span class="mk">⛴️</span><span>JIT 航速建議<small>JUST-IN-TIME ARRIVAL ADVISORY</small></span></div>
+  </div>
+</header>
+
+<main>
+  <div class="intro">
+    依「泊位預計可用時間」反推<b>建議航速</b>,讓船舶<b>到港即靠泊</b>,免除港外全速航行後拋錨空等所浪費的燃油與碳排。油耗以航運業<b>燃油立方定律</b>(油耗 ∝ 航速³)估算。
+  </div>
+
+  <!-- 地圖 -->
+  <div class="mapcard">
+    <div class="maphead">
+      <h3>🗺️ 航線地圖</h3>
+      <div class="destsel">
+        <label>終點（貨櫃中心）</label>
+        <select id="dest" onchange="onDestChange()"></select>
+      </div>
+    </div>
+    <div id="map"></div>
+    <div class="maptip">
+      <span>🟢 <b>起點</b>：在地圖上點擊任一海域，或拖曳綠色標記設定</span>
+      <span>🔵 終點貨櫃中心　🟠 目前選定終點</span>
+    </div>
+    <div class="route-info">
+      <div class="ri"><div class="k">起點座標</div><div class="v" id="riStart">—</div></div>
+      <div class="ri"><div class="k">終點</div><div class="v" id="riDest">—</div></div>
+      <div class="ri"><div class="k">大圓距離</div><div class="v" id="riDist">—</div></div>
+    </div>
+  </div>
+
+  <div class="layout">
+    <!-- 輸入面板 -->
+    <div class="panel">
+      <h3>航程參數</h3>
+      <div class="desc">輸入後即時計算,可調整任一欄位。</div>
+
+      <div class="field">
+        <label>船名 <span class="u">(選填)</span></label>
+        <input id="name" placeholder="例：長榮 EVER ACE">
+      </div>
+      <div class="field">
+        <label>船型</label>
+        <select id="type" onchange="applyType()">
+          <option value="container">大型貨櫃船</option>
+          <option value="bulk">散裝船</option>
+          <option value="tanker">油輪</option>
+          <option value="passenger">客輪</option>
+        </select>
+      </div>
+      <div class="two">
+        <div class="field">
+          <label>距港距離 <span class="u">(海里·依地圖)</span></label>
+          <input type="number" id="dist" value="320" min="1" oninput="calc()">
+        </div>
+        <div class="field">
+          <label>目前航速 <span class="u">(節)</span></label>
+          <input type="number" id="vnow" value="20" min="1" step="0.1" oninput="calc()">
+        </div>
+      </div>
+      <div class="field">
+        <label>泊位預計可用時間 <span class="u">(日期 / 時間)</span></label>
+        <input type="datetime-local" id="berthDT" oninput="calc()">
+        <div class="hint" id="berthHint" style="margin-top:6px"></div>
+      </div>
+
+      <span class="adv-toggle" onclick="document.getElementById('adv').classList.toggle('open')">⚙ 進階參數（油耗 / 成本）</span>
+      <div class="adv" id="adv">
+        <div class="two">
+          <div class="field">
+            <label>基準航速 <span class="u">(節)</span></label>
+            <input type="number" id="refspeed" value="22" min="1" step="0.1" oninput="calc()">
+          </div>
+          <div class="field">
+            <label>基準油耗 <span class="u">(噸/日)</span></label>
+            <input type="number" id="refrate" value="210" min="1" oninput="calc()">
+          </div>
+        </div>
+        <div class="two">
+          <div class="field">
+            <label>最低安全航速 <span class="u">(節)</span></label>
+            <input type="number" id="vmin" value="8" min="1" step="0.1" oninput="calc()">
+          </div>
+          <div class="field">
+            <label>錨地油耗 <span class="u">(噸/日)</span></label>
+            <input type="number" id="anchor" value="5" min="0" step="0.1" oninput="calc()">
+          </div>
+        </div>
+        <div class="two">
+          <div class="field">
+            <label>燃油價格 <span class="u">(USD/噸)</span></label>
+            <input type="number" id="price" value="650" min="0" oninput="calc()">
+          </div>
+          <div class="field">
+            <label>CO₂ 係數 <span class="u">(噸CO₂/噸油)</span></label>
+            <input type="number" id="co2f" value="3.114" min="0" step="0.001" oninput="calc()">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 結果 -->
+    <div>
+      <div class="reco" id="reco">
+        <div class="lbl">建議航速</div>
+        <div class="big" id="recoSpeed">—<span> 節</span></div>
+        <div class="eta" id="recoEta"></div>
+        <div class="note" id="recoNote"></div>
+      </div>
+
+      <div class="savings">
+        <div class="save"><div class="v" id="sFuel">—</div><div class="l">省燃油 (噸)</div></div>
+        <div class="save"><div class="v" id="sCo2">—</div><div class="l">減碳 (噸 CO₂)</div></div>
+        <div class="save"><div class="v" id="sCost">—</div><div class="l">省成本 (USD)</div></div>
+        <div class="save"><div class="v" id="sWait">—</div><div class="l">減少拋錨 (時)</div></div>
+      </div>
+
+      <div class="compare">
+        <h3>傳統全速 vs JIT 降速</h3>
+        <div class="cmp-row">
+          <div class="h"></div>
+          <div class="cmp-head"><span class="tag tag-trad">傳統</span><br>全速航行 + 拋錨等待</div>
+          <div class="cmp-head"><span class="tag tag-jit">JIT</span><br>降速直達靠泊</div>
+        </div>
+        <div class="cmp-row"><div class="h">航速</div><div class="cmp-val" id="cTradV">—</div><div class="cmp-val" id="cJitV">—</div></div>
+        <div class="cmp-row"><div class="h">航行時間</div><div class="cmp-val" id="cTradSail">—</div><div class="cmp-val" id="cJitSail">—</div></div>
+        <div class="cmp-row"><div class="h">港外拋錨</div><div class="cmp-val" id="cTradWait">—</div><div class="cmp-val" id="cJitWait">—</div></div>
+        <div class="cmp-row"><div class="h">總燃油</div><div class="cmp-val" id="cTradFuel">—</div><div class="cmp-val" id="cJitFuel">—</div></div>
+        <div class="cmp-row"><div class="h">總碳排</div><div class="cmp-val" id="cTradCo2">—</div><div class="cmp-val" id="cJitCo2">—</div></div>
+
+        <div class="viz">
+          <div class="vrow">
+            <div class="vtop"><span>傳統全速</span><b id="vTradTotal">—</b></div>
+            <div class="vbar"><div class="sail" id="vTradSail"></div><div class="anchor" id="vTradAnchor"></div></div>
+          </div>
+          <div class="vrow">
+            <div class="vtop"><span>JIT 降速</span><b id="vJitTotal">—</b></div>
+            <div class="vbar"><div class="sail" id="vJitSail"></div><div class="anchor" id="vJitAnchor"></div></div>
+          </div>
+          <div class="legend"><span><i class="l-sail"></i>航行油耗</span><span><i class="l-anchor"></i>錨地油耗</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  油耗採<b>立方定律</b>估算(油耗 ∝ 航速³),數值為規劃用近似值,實際依船舶引擎特性而異。<br>
+  此為獨立模組,後續可整合進船席調度系統,自動以泊位釋出時間推送建議航速給航商。
+</footer>
+
+<script>
+const TYPES={
+  container:{refspeed:22,refrate:210,vmin:8},
+  bulk:{refspeed:14,refrate:38,vmin:7},
+  tanker:{refspeed:15,refrate:60,vmin:7},
+  passenger:{refspeed:21,refrate:120,vmin:9}
+};
+function $(id){return document.getElementById(id);}
+function applyType(){
+  const t=TYPES[$('type').value];
+  $('refspeed').value=t.refspeed;$('refrate').value=t.refrate;$('vmin').value=t.vmin;
+  calc();
+}
+function fmtH(h){
+  if(h<0)h=0;
+  const H=Math.floor(h),M=Math.round((h-H)*60);
+  return `${H}時 ${M}分`;
+}
+function fmtEta(h){
+  const d=new Date(Date.now()+h*3600000);
+  return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+// 立方定律航行油耗(噸)
+function sailFuel(V,dist,refspeed,refrate){
+  const tDays=(dist/V)/24;
+  const rate=refrate*Math.pow(V/refspeed,3); // 噸/日
+  return rate*tDays;
+}
+
+function calc(){
+  const dist=+$('dist').value, vnow=+$('vnow').value;
+  const refspeed=+$('refspeed').value, refrate=+$('refrate').value, vmin=+$('vmin').value;
+  const anchor=+$('anchor').value, price=+$('price').value, co2f=+$('co2f').value;
+  // 由日期時間選擇器換算「幾小時後」
+  const berthVal=$('berthDT').value;
+  const hint=$('berthHint');
+  let tberth=NaN;
+  if(berthVal){
+    tberth=(new Date(berthVal).getTime()-Date.now())/3600000;
+    if(tberth>0){hint.className='hint';hint.textContent='距現在約 '+fmtH(tberth)+' 後';}
+    else{hint.className='hint bad';hint.textContent='泊位可用時間已過或為現在，請選擇未來時間。';}
+  }else{hint.className='hint bad';hint.textContent='請選擇泊位預計可用的日期與時間。';}
+  if(!(dist>0&&vnow>0&&tberth>0&&refspeed>0)){return;}
+
+  // 傳統:維持目前航速,提早到就拋錨
+  const tSailTrad=dist/vnow;
+  const tWaitTrad=Math.max(0,tberth-tSailTrad);
+  const fuelSailTrad=sailFuel(vnow,dist,refspeed,refrate);
+  const fuelWaitTrad=anchor*(tWaitTrad/24);
+  const fuelTrad=fuelSailTrad+fuelWaitTrad;
+
+  // JIT:讓抵達時間=泊位可用時間
+  const desired=dist/tberth;
+  let vjit, note, warn=false;
+  if(desired>=vnow){
+    // 泊位於抵達前後即可用,無減速空間
+    vjit=vnow; warn=true;
+    note="泊位於抵達前後即可用,無減速空間,建議維持目前航速直航。";
+  }else if(desired<vmin){
+    vjit=vmin;
+    note="泊位可用時間較晚,已降至最低安全航速,仍會有部分等待。";
+  }else{
+    vjit=desired;
+    note="建議降速航行,到港即靠泊,免除港外拋錨等待。";
+  }
+  const tSailJit=dist/vjit;
+  const tWaitJit=Math.max(0,tberth-tSailJit);
+  const fuelSailJit=sailFuel(vjit,dist,refspeed,refrate);
+  const fuelWaitJit=anchor*(tWaitJit/24);
+  const fuelJit=fuelSailJit+fuelWaitJit;
+
+  const saveFuel=fuelTrad-fuelJit;
+  const saveCo2=saveFuel*co2f;
+  const saveCost=saveFuel*price;
+  const saveWait=tWaitTrad-tWaitJit;
+
+  // 建議卡
+  const reco=$('reco');
+  reco.classList.toggle('warn',warn);
+  $('recoSpeed').innerHTML=vjit.toFixed(1)+'<span> 節</span>';
+  let etaTxt='預計抵港：'+fmtEta(tSailJit)+'（航行 '+fmtH(tSailJit)+'）';
+  if(tWaitJit>0.05){
+    etaTxt+='　│　抵港後仍等待 '+fmtH(tWaitJit)+'，'+fmtEta(tberth)+' 靠泊';
+  }else{
+    etaTxt+='　│　到港即靠泊，無須等待';
+  }
+  $('recoEta').textContent=etaTxt;
+  $('recoNote').textContent=note;
+
+  // 節省
+  const pos=saveFuel>0.05;
+  const setSave=(id,val,unit)=>{const e=$(id);e.textContent=val;e.classList.toggle('neutral',!pos);};
+  $('sFuel').textContent=(saveFuel>=0?'':'')+saveFuel.toFixed(1);
+  $('sCo2').textContent=saveCo2.toFixed(1);
+  $('sCost').textContent='$'+Math.round(saveCost).toLocaleString();
+  $('sWait').textContent=saveWait.toFixed(1);
+  [['sFuel'],['sCo2'],['sCost'],['sWait']].forEach(([id])=>$(id).classList.toggle('neutral',!pos));
+
+  // 對照
+  $('cTradV').textContent=vnow.toFixed(1)+' 節';
+  $('cJitV').textContent=vjit.toFixed(1)+' 節';
+  $('cTradSail').textContent=fmtH(tSailTrad);
+  $('cJitSail').textContent=fmtH(tSailJit);
+  $('cTradWait').textContent=fmtH(tWaitTrad);
+  $('cJitWait').textContent=fmtH(tWaitJit);
+  $('cTradFuel').textContent=fuelTrad.toFixed(1)+' 噸';
+  $('cJitFuel').textContent=fuelJit.toFixed(1)+' 噸';
+  $('cTradCo2').textContent=(fuelTrad*co2f).toFixed(1)+' 噸';
+  $('cJitCo2').textContent=(fuelJit*co2f).toFixed(1)+' 噸';
+
+  // 視覺化(以傳統總油耗為 100% 基準)
+  const maxF=Math.max(fuelTrad,fuelJit,0.001);
+  const pct=v=>(v/maxF*100);
+  $('vTradSail').style.width=pct(fuelSailTrad)+'%';
+  $('vTradAnchor').style.width=pct(fuelWaitTrad)+'%';
+  $('vJitSail').style.width=pct(fuelSailJit)+'%';
+  $('vJitAnchor').style.width=pct(fuelWaitJit)+'%';
+  $('vTradTotal').textContent=fuelTrad.toFixed(1)+' 噸';
+  $('vJitTotal').textContent=fuelJit.toFixed(1)+' 噸';
+}
+
+/* ===== 地圖 ===== */
+const DESTS=[
+  {n:'第一貨櫃中心',lat:22.6089,lng:120.2854},
+  {n:'第二貨櫃中心',lat:22.5936,lng:120.3090},
+  {n:'第三貨櫃中心',lat:22.5695,lng:120.3060},
+  {n:'第四貨櫃中心',lat:22.5668,lng:120.2818},
+  {n:'第五貨櫃中心',lat:22.5539,lng:120.3242},
+  {n:'第六貨櫃中心',lat:22.5401,lng:120.3168},
+  {n:'第七貨櫃中心',lat:22.5366,lng:120.3226}
+];
+let map, startMarker, destMarkers=[], routeLine, activeDest=3; // 預設第四貨櫃中心
+let startPt={lat:20.30,lng:119.20}; // 預設起點：高雄西南外海
+
+function nmBetween(a,b){
+  const R=6371000, toR=x=>x*Math.PI/180;
+  const dLat=toR(b.lat-a.lat), dLng=toR(b.lng-a.lng);
+  const s=Math.sin(dLat/2)**2+Math.cos(toR(a.lat))*Math.cos(toR(b.lat))*Math.sin(dLng/2)**2;
+  return (2*R*Math.asin(Math.sqrt(s)))/1852; // 公尺→海里
+}
+function destIcon(active){
+  return L.divIcon({className:'',html:`<div class="mk-dest${active?' active':''}"></div>`,iconSize:active?[20,20]:[14,14],iconAnchor:active?[10,10]:[7,7]});
+}
+function startIcon(){return L.divIcon({className:'',html:'<div class="mk-start"></div>',iconSize:[18,18],iconAnchor:[9,9]});}
+
+function initMap(){
+  // 終點下拉
+  $('dest').innerHTML=DESTS.map((d,i)=>`<option value="${i}"${i===activeDest?' selected':''}>${d.n}</option>`).join('');
+
+  map=L.map('map',{scrollWheelZoom:true}).setView([21.6,119.9],8);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    maxZoom:18, attribution:'© OpenStreetMap'
+  }).addTo(map);
+
+  // 終點標記
+  DESTS.forEach((d,i)=>{
+    const m=L.marker([d.lat,d.lng],{icon:destIcon(i===activeDest)}).addTo(map).bindTooltip(d.n,{direction:'right'});
+    m.on('click',()=>{activeDest=i;$('dest').value=i;refreshDest();});
+    destMarkers.push(m);
+  });
+
+  // 起點(可拖曳)
+  startMarker=L.marker([startPt.lat,startPt.lng],{icon:startIcon(),draggable:true}).addTo(map).bindTooltip('起點(可拖曳)',{direction:'right'});
+  startMarker.on('drag',()=>{const p=startMarker.getLatLng();startPt={lat:p.lat,lng:p.lng};updateRoute(false);});
+  startMarker.on('dragend',()=>updateRoute(false));
+
+  // 點地圖設起點
+  map.on('click',e=>{startPt={lat:e.latlng.lat,lng:e.latlng.lng};startMarker.setLatLng(e.latlng);updateRoute(false);});
+
+  routeLine=L.polyline([[startPt.lat,startPt.lng],[DESTS[activeDest].lat,DESTS[activeDest].lng]],
+    {color:'#0f6fc6',weight:3,dashArray:'8,8',opacity:.85}).addTo(map);
+
+  updateRoute(true);
+}
+function refreshDest(){
+  destMarkers.forEach((m,i)=>m.setIcon(destIcon(i===activeDest)));
+  updateRoute(true);
+}
+function onDestChange(){activeDest=+$('dest').value;refreshDest();}
+function updateRoute(fit){
+  const d=DESTS[activeDest];
+  const dist=nmBetween(startPt,d);
+  routeLine.setLatLngs([[startPt.lat,startPt.lng],[d.lat,d.lng]]);
+  $('riStart').textContent=startPt.lat.toFixed(4)+', '+startPt.lng.toFixed(4);
+  $('riDest').textContent=d.n;
+  $('riDist').textContent=dist.toFixed(1)+' 海里';
+  $('dist').value=dist.toFixed(1);
+  if(fit){map.fitBounds([[startPt.lat,startPt.lng],[d.lat,d.lng]],{padding:[50,50]});}
+  calc();
+}
+
+function toLocalInput(ts){
+  const d=new Date(ts);d.setMinutes(d.getMinutes()-d.getTimezoneOffset());
+  return d.toISOString().slice(0,16);
+}
+// 預設泊位可用時間：現在 + 22 小時
+$('berthDT').value=toLocalInput(Date.now()+22*3600000);
+
+calc();
+window.addEventListener('load',initMap);
+</script>
+</body>
+</html>
